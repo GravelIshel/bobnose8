@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BobnoseWiki</title>
+
+<style>
+body{margin:0;font-family:Arial;background:#f6f6f6}
+.topbar{background:#fff;border-bottom:1px solid #a2a9b1;padding:10px;display:flex;gap:12px;align-items:center}
+.logo img{height:36px}
+.search{flex:1}
+.search input{width:100%;padding:6px}
+.layout{display:flex}
+.sidebar{width:220px;background:#f8f9fa;border-right:1px solid #a2a9b1;padding:12px;height:100vh;overflow:auto}
+.link{color:#0645ad;cursor:pointer;display:block;margin:5px 0}
+.category{font-size:12px;color:#333;margin-left:10px}
+.content{padding:20px;max-width:900px}
+.tabs span{margin-right:12px;color:#0645ad;cursor:pointer}
+.tabs span.active{font-weight:bold}
+#loginOverlay{position:fixed;inset:0;background:#000000cc;display:flex;align-items:center;justify-content:center}
+.loginBox{background:#fff;padding:20px;border:2px solid #000;width:280px;text-align:center}
+textarea{width:100%;height:160px}
+button{padding:6px 12px;margin-top:8px}
+.historyItem{font-size:13px;border-bottom:1px solid #ccc;padding:4px}
+</style>
+</head>
+
+<body>
+
+<div id="loginOverlay">
+  <div class="loginBox">
+    <h2>BobnoseWiki Login</h2>
+    <input type="password" id="password" placeholder="Password"><br>
+    <button id="loginBtn">Enter</button>
+    <p id="error" style="color:red"></p>
+  </div>
+</div>
+
+<div class="topbar">
+  <div class="logo"><img src="logo.png"></div>
+  <div class="search">
+    <input id="searchBox" placeholder="Search...">
+  </div>
+</div>
+
+<div class="layout">
+  <div class="sidebar" id="sidebar"></div>
+
+  <div class="content">
+
+    <div class="tabs">
+      <span id="tabRead">Read</span>
+      <span id="tabEdit">Edit</span>
+      <span id="tabHistory">History</span>
+    </div>
+
+    <div id="readView"></div>
+
+    <div id="editView" style="display:none">
+      <input id="editTitle" placeholder="Title"><br><br>
+      <input id="editCategory" placeholder="Category"><br><br>
+      <textarea id="editContent"></textarea><br>
+      <button id="saveBtn">Save</button>
+    </div>
+
+    <div id="historyView" style="display:none"></div>
+
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
+import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-database.js";
+
+/* ---------------- FIREBASE ---------------- */
+
+const firebaseConfig = {
+  apiKey: "AIzaSyB1ZZ7ah1JXQ4lHt1JwGzlGhNib8N2auyc",
+  authDomain: "bobnose-da095.firebaseapp.com",
+  databaseURL: "https://bobnose-da095-default-rtdb.firebaseio.com",
+  projectId: "bobnose-da095",
+  storageBucket: "bobnose-da095.firebasestorage.app",
+  messagingSenderId: "374534708519",
+  appId: "1:374534708519:web:63722974df58ea61e4dd02"
+};
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const wikiRef = ref(db, "pages");
+
+/* ---------------- SETTINGS ---------------- */
+
+const PASSWORD = "Mavik";
+
+let pages = {};
+let current = "Main Page";
+
+/* ---------------- ELEMENTS ---------------- */
+
+const sidebar = document.getElementById("sidebar");
+const readView = document.getElementById("readView");
+const editView = document.getElementById("editView");
+const historyView = document.getElementById("historyView");
+const editTitle = document.getElementById("editTitle");
+const editContent = document.getElementById("editContent");
+const editCategory = document.getElementById("editCategory");
+
+/* ---------------- HELPERS ---------------- */
+
+function cleanKey(str){
+  return str.replace(/[.#$\[\]\/]/g, "").trim();
+}
+
+function escapeHTML(str){
+  return str.replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+/* ---------------- LOGIN ---------------- */
+
+document.getElementById("loginBtn").addEventListener("click", login);
+document.getElementById("password").addEventListener("keydown", e=>{
+  if(e.key==="Enter") login();
+});
+
+function login(){
+  const pass = document.getElementById("password").value;
+  if(pass === PASSWORD){
+    document.getElementById("loginOverlay").style.display = "none";
+  } else {
+    document.getElementById("error").innerText = "Wrong password";
+  }
+}
+
+/* ---------------- FIREBASE SYNC ---------------- */
+
+onValue(wikiRef, snap => {
+
+  if(snap.exists()){
+    pages = snap.val();
+  } else {
+    pages = {
+      "Main Page": {
+        category:"General",
+        content:"Welcome to BobnoseWiki.",
+        history:[]
+      }
+    };
+    saveCloud();
+  }
+
+  renderSidebar();
+
+  if(!pages[current]){
+    current = Object.keys(pages)[0];
+  }
+
+  loadPage(current);
+});
+
+function saveCloud(){
+  set(wikiRef, pages);
+}
+
+/* ---------------- SIDEBAR ---------------- */
+
+function renderSidebar(){
+
+  sidebar.innerHTML = "<b>Pages</b> <button id='newBtn'>+ New Page</button><hr>";
+
+  document.getElementById("newBtn").addEventListener("click", createNewPage);
+
+  Object.keys(pages).sort().forEach(p=>{
+    const link = document.createElement("span");
+    link.className = "link";
+    link.textContent = p;
+    link.onclick = () => loadPage(p);
+    sidebar.appendChild(link);
+  });
+}
+
+/* ---------------- CREATE PAGE ---------------- */
+
+function createNewPage(){
+
+  let title = prompt("Enter new page title:");
+  if(!title) return;
+
+  title = cleanKey(title);
+
+  if(!title){
+    alert("Invalid title");
+    return;
+  }
+
+  if(pages[title]){
+    alert("Page already exists");
+    return;
+  }
+
+  pages[title] = {
+    category:"Unsorted",
+    content:"",
+    history:[]
+  };
+
+  saveCloud();
+  loadPage(title);
+  showTab("edit");
+}
+
+/* ---------------- LOAD PAGE ---------------- */
+
+function loadPage(title){
+
+  current = title;
+
+  const page = pages[title];
+
+  readView.innerHTML = `
+    <h1>${escapeHTML(title)}</h1>
+    <pre>${escapeHTML(page.content)}</pre>
+    <i>Category: ${escapeHTML(page.category)}</i>
+  `;
+
+  editTitle.value = title;
+  editContent.value = page.content;
+  editCategory.value = page.category;
+
+  renderHistory();
+  showTab("read");
+}
+
+/* ---------------- SAVE PAGE ---------------- */
+
+document.getElementById("saveBtn").addEventListener("click", ()=>{
+
+  if(!pages[current].history){
+    pages[current].history = [];
+  }
+
+  // Save previous version
+  pages[current].history.push({
+    time: new Date().toLocaleString(),
+    content: pages[current].content
+  });
+
+  const newTitle = cleanKey(editTitle.value);
+
+  pages[current].content = editContent.value;
+  pages[current].category = editCategory.value;
+
+  // Handle rename safely
+  if(newTitle && newTitle !== current){
+
+    if(pages[newTitle]){
+      alert("A page with that name already exists.");
+      return;
+    }
+
+    pages[newTitle] = pages[current];
+    delete pages[current];
+    current = newTitle;
+  }
+
+  saveCloud();
+  renderSidebar();
+  loadPage(current);
+});
+
+/* ---------------- HISTORY ---------------- */
+
+function renderHistory(){
+
+  historyView.innerHTML = "";
+
+  const page = pages[current];
+
+  if(!page.history || page.history.length === 0){
+    historyView.innerHTML = "<i>No history yet</i>";
+    return;
+  }
+
+  page.history.slice().reverse().forEach(h=>{
+    const d = document.createElement("div");
+    d.className = "historyItem";
+    d.textContent = h.time;
+    historyView.appendChild(d);
+  });
+}
+
+/* ---------------- TABS ---------------- */
+
+document.getElementById("tabRead").onclick = ()=>showTab("read");
+document.getElementById("tabEdit").onclick = ()=>showTab("edit");
+document.getElementById("tabHistory").onclick = ()=>showTab("history");
+
+function showTab(t){
+
+  readView.style.display = t==="read"?"block":"none";
+  editView.style.display = t==="edit"?"block":"none";
+  historyView.style.display = t==="history"?"block":"none";
+
+  document.querySelectorAll(".tabs span").forEach(s=>s.classList.remove("active"));
+  document.getElementById("tab"+t.charAt(0).toUpperCase()+t.slice(1)).classList.add("active");
+}
+</script>
+
+</body>
+</html>
